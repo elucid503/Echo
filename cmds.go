@@ -39,28 +39,28 @@ func RegisterCommands(client *bot.Client, cfg CommandConfig) error {
 		discord.SlashCommandCreate{
 
 			Name: "connect",
-			Description: "Join your voice channel and start listening",
+			Description: "Use this command for Echo to join the call and start listening.",
 
 		},
 
 		discord.SlashCommandCreate{
 
 			Name: "disconnect",
-			Description: "Leave the current voice channel",
+			Description: "Use this command for Echo to leave the call.",
 
 		},
 
 		discord.SlashCommandCreate{
 
 			Name: "clip",
-			Description: "Upload a WAV clip of recent audio",
+			Description: "Use this command to get a recording of the last few seconds of your call.",
 
 			Options: []discord.ApplicationCommandOption{
 
 				discord.ApplicationCommandOptionInt{
 
 					Name: "seconds",
-					Description: "Duration in seconds (1–15)",
+					Description: "Use this option to specify an optional duration in seconds.",
 					Required: false,
 					MinValue: &minSecs,
 					MaxValue: &maxSecs,
