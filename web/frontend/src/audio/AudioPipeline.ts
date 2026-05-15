@@ -4,113 +4,113 @@ export type PipelineState = "idle" | "starting" | "running" | "suspended";
 
 export class AudioPipeline {
 
-    public readonly sampleRate = 48000;
+	public readonly sampleRate = 48000;
 
-    private context: AudioContext | null = null;
-    private workletNode: AudioWorkletNode | null = null;
-    private analyser: AnalyserNode | null = null;
-    private state: PipelineState = "idle";
+	private context: AudioContext | null = null;
+	private workletNode: AudioWorkletNode | null = null;
+	private analyser: AnalyserNode | null = null;
+	private state: PipelineState = "idle";
 
-    // Starts (or resumes) the audio graph. Must be called from a user gesture!
+	// Starts (or resumes) the audio graph. Must be called from a user gesture!
 
-    async start(): Promise<void> {
+	async start(): Promise<void> {
 
-        if (this.state === "running") {
+		if (this.state === "running") {
 
-            return;
+			return;
 
-        }
+		}
 
-        if (!this.context) {
+		if (!this.context) {
 
-            this.state = "starting";
+			this.state = "starting";
 
-            this.context = new AudioContext({ sampleRate: this.sampleRate });
+			this.context = new AudioContext({ sampleRate: this.sampleRate });
 
-            await this.context.audioWorklet.addModule(workletUrl);
+			await this.context.audioWorklet.addModule(workletUrl);
 
-            this.workletNode = new AudioWorkletNode(this.context, "echo-pcm-player", {
+			this.workletNode = new AudioWorkletNode(this.context, "echo-pcm-player", {
 
-                numberOfInputs: 0,
-                numberOfOutputs: 1,
-                outputChannelCount: [2],
+				numberOfInputs: 0,
+				numberOfOutputs: 1,
+				outputChannelCount: [2],
 
-            });
+			});
 
-            this.analyser = this.context.createAnalyser();
-            this.analyser.fftSize = 2048;
-            this.analyser.smoothingTimeConstant = 0.4;
+			this.analyser = this.context.createAnalyser();
+			this.analyser.fftSize = 2048;
+			this.analyser.smoothingTimeConstant = 0.4;
 
-            this.workletNode.connect(this.analyser);
-            this.analyser.connect(this.context.destination);
+			this.workletNode.connect(this.analyser);
+			this.analyser.connect(this.context.destination);
 
-        }
+		}
 
-        if (this.context.state === "suspended") {
+		if (this.context.state === "suspended") {
 
-            await this.context.resume();
+			await this.context.resume();
 
-        }
+		}
 
-        this.state = "running";
+		this.state = "running";
 
-    }
+	}
 
-    async suspend(): Promise<void> {
+	async suspend(): Promise<void> {
 
-        if (this.context && this.context.state === "running") {
+		if (this.context && this.context.state === "running") {
 
-            await this.context.suspend();
+			await this.context.suspend();
 
-        }
+		}
 
-        this.state = "suspended";
+		this.state = "suspended";
 
-    }
+	}
 
-    // pushFrame hands an Int16Array to the worklet.
+	// pushFrame hands an Int16Array to the worklet.
 
-    pushFrame(int16: Int16Array): void {
+	pushFrame(int16: Int16Array): void {
 
-        if (!this.workletNode) {
+		if (!this.workletNode) {
 
-            return;
+			return;
 
-        }
+		}
 
-        this.workletNode.port.postMessage({ pcm: int16 }, [int16.buffer]);
+		this.workletNode.port.postMessage({ pcm: int16 }, [int16.buffer]);
 
-    }
+	}
 
-    getAnalyser(): AnalyserNode | null { return this.analyser; }
+	getAnalyser(): AnalyserNode | null { return this.analyser; }
 
-    getState(): PipelineState { return this.state; }
+	getState(): PipelineState { return this.state; }
 
-    async dispose(): Promise<void> {
+	async dispose(): Promise<void> {
 
-        if (this.workletNode) {
+		if (this.workletNode) {
 
-            this.workletNode.disconnect();
-            this.workletNode = null;
+			this.workletNode.disconnect();
+			this.workletNode = null;
 
-        }
+		}
 
-        if (this.analyser) {
+		if (this.analyser) {
 
-            this.analyser.disconnect();
-            this.analyser = null;
+			this.analyser.disconnect();
+			this.analyser = null;
 
-        }
+		}
 
-        if (this.context) {
+		if (this.context) {
 
-            await this.context.close();
-            this.context = null;
+			await this.context.close();
+			this.context = null;
 
-        }
+		}
 
-        this.state = "idle";
+		this.state = "idle";
 
-    }
+	}
 
 }

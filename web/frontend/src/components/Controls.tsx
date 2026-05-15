@@ -6,29 +6,29 @@ import { isFileSystemAccessSupported, type RecorderStatus } from "../record/Reco
 
 interface Props {
 
-    guildID: string;
+	guildID: string;
 
-    playing: boolean;
-    onTogglePlayback: () => void;
+	playing: boolean;
+	onTogglePlayback: () => void;
 
-    clipSeconds: number;
-    onClipSecondsChange: (value: number) => void;
+	clipSeconds: number;
+	onClipSecondsChange: (value: number) => void;
 
-    onDownloadClip: () => void;
-    clipBusy: boolean;
+	onDownloadClip: () => void;
+	clipBusy: boolean;
 
-    recorderStatus: RecorderStatus;
-    onToggleRecording: () => void;
+	recorderStatus: RecorderStatus;
+	onToggleRecording: () => void;
 
-    onJoin: (channelID: string) => void;
-    onLeave: () => void;
-    voiceConnected: boolean;
+	onJoin: (channelID: string) => void;
+	onLeave: () => void;
+	voiceConnected: boolean;
 
 }
 
 interface State {
 
-    channelID: string;
+	channelID: string;
 
 }
 
@@ -44,113 +44,113 @@ const inputClass = "rounded-none w-full border border-border-strong bg-surface-i
 
 export class Controls extends Component<Props, State> {
 
-    state: State = { channelID: "" };
+	state: State = { channelID: "" };
 
-    private recorderSupported = isFileSystemAccessSupported();
+	private recorderSupported = isFileSystemAccessSupported();
 
-    render() {
+	render() {
 
-        const { playing, clipBusy, recorderStatus, voiceConnected } = this.props;
+		const { playing, clipBusy, recorderStatus, voiceConnected } = this.props;
 
-        return (
+		return (
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-flow-col sm:grid-cols-2 sm:grid-rows-2">
+			<div className="grid grid-cols-1 gap-3 sm:grid-flow-col sm:grid-cols-2 sm:grid-rows-2">
 
-                <div className={panelClass}>
+				<div className={panelClass}>
 
-                    <p className={panelTitleClass}>Playback</p>
+					<p className={panelTitleClass}>Playback</p>
 
-                    <button type="button" onClick={this.props.onTogglePlayback} className={`mt-auto ${playing ? dangerBtnClass : primaryBtnClass}`}>
+					<button type="button" onClick={this.props.onTogglePlayback} className={`mt-auto ${playing ? dangerBtnClass : primaryBtnClass}`}>
 
-                        {playing ? "Pause" : "Listen"}
+						{playing ? "Pause" : "Listen"}
 
-                    </button>
+					</button>
 
-                </div>
+				</div>
 
-                <div className={panelClass}>
+				<div className={panelClass}>
 
-                    <p className={panelTitleClass}>Clip</p>
+					<p className={panelTitleClass}>Clip</p>
 
-                    <button type="button" onClick={this.props.onDownloadClip} disabled={clipBusy} className={`mt-auto ${primaryBtnClass} ${ clipBusy ? "bg-surface-raised text-fg-subtle opacity-80 hover:opacity-80" : "" }`}>
+					<button type="button" onClick={this.props.onDownloadClip} disabled={clipBusy} className={`mt-auto ${primaryBtnClass} ${ clipBusy ? "bg-surface-raised text-fg-subtle opacity-80 hover:opacity-80" : "" }`}>
 
-                        {clipBusy ? "Building…" : "Download WAV"}
+						{clipBusy ? "Building…" : "Download WAV"}
 
-                    </button>
+					</button>
 
-                </div>
+				</div>
 
-                <div className={panelClass}>
+				<div className={panelClass}>
 
-                    <p className={panelTitleClass}>Session recording</p>
+					<p className={panelTitleClass}>Session recording</p>
 
-                    {this.recorderSupported ? (
+					{this.recorderSupported ? (
 
-                        <button type="button" onClick={this.props.onToggleRecording} disabled={recorderStatus === "finalising"} className={`mt-auto ${ recorderStatus === "recording" ? dangerBtnClass : `${secondaryBtnClass} disabled:opacity-50` }`}>
+						<button type="button" onClick={this.props.onToggleRecording} disabled={recorderStatus === "finalising"} className={`mt-auto ${ recorderStatus === "recording" ? dangerBtnClass : `${secondaryBtnClass} disabled:opacity-50` }`}>
 
-                            {labelForRecorder(recorderStatus)}
+							{labelForRecorder(recorderStatus)}
 
-                        </button>
+						</button>
 
-                    ) : (
+					) : (
 
-                        <p className="m-0 text-xs text-fg-muted">
+						<p className="m-0 text-xs text-fg-muted">
 
-                            Use Chrome or Edge to record sessions.
+							Use Chrome or Edge to record sessions.
 
-                        </p>
+						</p>
 
-                    )}
+					)}
 
-                </div>
+				</div>
 
-                <div className={panelClass}>
+				<div className={panelClass}>
 
-                    <p className={panelTitleClass}>Voice channel</p>
+					<p className={panelTitleClass}>Voice channel</p>
 
-                    {voiceConnected ? (
+					{voiceConnected ? (
 
-                        <button type="button" onClick={this.props.onLeave} className={`mt-auto ${ghostBtnClass}`}>
+						<button type="button" onClick={this.props.onLeave} className={`mt-auto ${ghostBtnClass}`}>
 
-                            Disconnect
+							Disconnect
 
-                        </button>
+						</button>
 
-                    ) : (
+					) : (
 
-                        <div className="mt-auto flex w-full flex-col gap-2">
+						<div className="mt-auto flex w-full flex-col gap-2">
 
-                            <input type="text" inputMode="numeric" value={this.state.channelID} onChange={(e) => this.setState({ channelID: e.target.value })} placeholder="Channel ID" className={inputClass}/>
+							<input type="text" inputMode="numeric" value={this.state.channelID} onChange={(e) => this.setState({ channelID: e.target.value })} placeholder="Channel ID" className={inputClass}/>
 
-                            <button type="button" onClick={() => this.props.onJoin(this.state.channelID.trim())} className={`${primaryBtnClass} disabled:opacity-50`} disabled={!this.state.channelID.trim()}>
+							<button type="button" onClick={() => this.props.onJoin(this.state.channelID.trim())} className={`${primaryBtnClass} disabled:opacity-50`} disabled={!this.state.channelID.trim()}>
 
-                                Join
+								Join
 
-                            </button>
+							</button>
 
-                        </div>
+						</div>
 
-                    )}
+					)}
 
-                </div>
+				</div>
 
-            </div>
+			</div>
 
-        );
+		);
 
-    }
+	}
 
 }
 
 function labelForRecorder(status: RecorderStatus): string {
 
-    switch (status) {
+	switch (status) {
 
-        case "recording": return "Stop Recording";
-        case "finalising": return "Finalising...";
-        case "error": return "Error! Please try again";
-        default: return "Start Recording";
+		case "recording": return "Stop Recording";
+		case "finalising": return "Finalising...";
+		case "error": return "Error! Please try again";
+		default: return "Start Recording";
 
-    }
+	}
 
 }

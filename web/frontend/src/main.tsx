@@ -9,7 +9,7 @@ const rootElement = document.getElementById("root");
 
 if (!rootElement) {
 
-    throw new Error("Echo: #root element missing from index.html");
+	throw new Error("Echo: #root element missing from index.html");
 
 }
 
@@ -17,50 +17,50 @@ const guildID = new URLSearchParams(window.location.search).get("guildID") ?? ""
 
 createRoot(rootElement).render(
 
-    <StrictMode>
+	<StrictMode>
 
-        {guildID ? (
+		{guildID ? (
 
-            <Dashboard guildID={guildID} />
+			<Dashboard guildID={guildID} />
 
-        ) : (
+		) : (
 
-            <Splash />
+			<Splash />
 
-        )}
+		)}
 
-    </StrictMode>,
+	</StrictMode>,
 
 );
 
 function Splash() {
 
-    return (
+	return (
 
-        <div className="flex min-h-full flex-col items-center justify-center gap-4 p-8 text-center">
+		<div className="flex min-h-full flex-col items-center justify-center gap-4 p-8 text-center">
 
-            <h1 className="m-0 text-[22px] font-semibold text-fg">
+			<h1 className="m-0 text-[22px] font-semibold text-fg">
 
-                Echo
+				Echo
 
-            </h1>
+			</h1>
 
-            <p className="m-0 max-w-xs text-sm text-fg-muted">
+			<p className="m-0 max-w-xs text-sm text-fg-muted">
 
-                Use{" "}
+				Use{" "}
 
-                <code className="rounded-none border border-border bg-surface-inset px-1.5 py-0.5 font-mono text-xs text-fg">
+				<code className="rounded-none border border-border bg-surface-inset px-1.5 py-0.5 font-mono text-xs text-fg">
 
-                    /connect
+					/connect
 
-                </code>{" "}
+				</code>{" "}
 
-                in your Discord server. The bot will reply with a link to your server's dashboard.
+				in your Discord server. The bot will reply with a link to your server's dashboard.
 
-            </p>
+			</p>
 
-        </div>
+		</div>
 
-    );
+	);
 
 }

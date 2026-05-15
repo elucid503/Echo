@@ -2,17 +2,17 @@ declare const registerProcessor: ( name: string, ctor: new (options?: AudioWorkl
 
 declare class AudioWorkletProcessor {
 
-    readonly port: MessagePort;
+	readonly port: MessagePort;
 
-    constructor();
+	constructor();
 
-    process(
+	process(
 
-        inputs: Float32Array[][],
-        outputs: Float32Array[][],
-        parameters: Record<string, Float32Array>
+		inputs: Float32Array[][],
+		outputs: Float32Array[][],
+		parameters: Record<string, Float32Array>
 
-    ): boolean;
+	): boolean;
 
 }
 
@@ -23,152 +23,152 @@ const MAX_FILL = (48000 / 1000) * 400;
 
 class EchoPcmPlayer extends AudioWorkletProcessor {
 
-    // Interleaved Float32 ring buffer. Holds samples-per-channel * channels.
+	// Interleaved Float32 ring buffer. Holds samples-per-channel * channels.
 
-    private ring = new Float32Array(RING_CAPACITY * 2);
-    private writePos = 0;
-    private readPos = 0;
-    private filled = 0;
+	private ring = new Float32Array(RING_CAPACITY * 2);
+	private writePos = 0;
+	private readPos = 0;
+	private filled = 0;
 
-    // If prerolling, the output is silent until the jitter buffer reaches TARGET_FILL.
+	// If prerolling, the output is silent until the jitter buffer reaches TARGET_FILL.
 
-    private prerolling = true;
+	private prerolling = true;
 
-    constructor() {
+	constructor() {
 
-        super();
+		super();
 
-        this.port.onmessage = (event) => this.onMessage(event);
+		this.port.onmessage = (event) => this.onMessage(event);
 
-    }
+	}
 
-    private onMessage(event: MessageEvent): void {
+	private onMessage(event: MessageEvent): void {
 
-        const data = event.data as { pcm?: Int16Array } | null;
+		const data = event.data as { pcm?: Int16Array } | null;
 
-        if (!data || !data.pcm) {
+		if (!data || !data.pcm) {
 
-            return;
+			return;
 
-        }
+		}
 
-        this.push(data.pcm);
+		this.push(data.pcm);
 
-    }
+	}
 
-    private push(int16: Int16Array): void {
+	private push(int16: Int16Array): void {
 
-        const ring = this.ring;
-        const total = ring.length;
+		const ring = this.ring;
+		const total = ring.length;
 
-        for (let i = 0; i < int16.length; i++) {
+		for (let i = 0; i < int16.length; i++) {
 
-            ring[this.writePos] = int16[i] / 32768;
+			ring[this.writePos] = int16[i] / 32768;
 
-            this.writePos++;
+			this.writePos++;
 
-            if (this.writePos >= total) {
+			if (this.writePos >= total) {
 
-                this.writePos = 0;
+				this.writePos = 0;
 
-            }
+			}
 
-            if (this.filled < total) {
+			if (this.filled < total) {
 
-                this.filled++;
+				this.filled++;
 
-            } else {
+			} else {
 
-                // Ring overflow. We should rop the oldest sample so we never block.
+				// Ring overflow. We should rop the oldest sample so we never block.
 
-                this.readPos++;
+				this.readPos++;
 
-                if (this.readPos >= total) {
+				if (this.readPos >= total) {
 
-                    this.readPos = 0;
+					this.readPos = 0;
 
-                }
+				}
 
-            }
+			}
 
-        }
+		}
 
-        // If latency is too high, we drop the oldest samples to get back to TARGET_FILL.
+		// If latency is too high, we drop the oldest samples to get back to TARGET_FILL.
 
-        if (this.filled > MAX_FILL * 2) {
+		if (this.filled > MAX_FILL * 2) {
 
-            const drop = this.filled - TARGET_FILL * 2;
+			const drop = this.filled - TARGET_FILL * 2;
 
-            this.readPos = (this.readPos + drop) % total;
-            this.filled -= drop;
+			this.readPos = (this.readPos + drop) % total;
+			this.filled -= drop;
 
-        }
+		}
 
-    }
+	}
 
-    process(_inputs: Float32Array[][], outputs: Float32Array[][], _parameters: Record<string, Float32Array>): boolean {
+	process(_inputs: Float32Array[][], outputs: Float32Array[][], _parameters: Record<string, Float32Array>): boolean {
 
-        const output = outputs[0];
+		const output = outputs[0];
 
-        if (!output || output.length < 2) {
+		if (!output || output.length < 2) {
 
-            return true;
+			return true;
 
-        }
+		}
 
-        const left = output[0];
-        const right = output[1];
+		const left = output[0];
+		const right = output[1];
 
-        // Holds playback in silence until the jitter buffer reaches TARGET_FILL.
+		// Holds playback in silence until the jitter buffer reaches TARGET_FILL.
 
-        if (this.prerolling) {
+		if (this.prerolling) {
 
-            if (this.filled < TARGET_FILL * 2) {
+			if (this.filled < TARGET_FILL * 2) {
 
-                left.fill(0);
-                right.fill(0);
-                return true;
+				left.fill(0);
+				right.fill(0);
+				return true;
 
-            }
+			}
 
-            this.prerolling = false;
+			this.prerolling = false;
 
-        }
+		}
 
-        // If we can't fill the output, we should output silence and wait for the jitter buffer to fill up again.
+		// If we can't fill the output, we should output silence and wait for the jitter buffer to fill up again.
 
-        if (this.filled < left.length * 2) {
+		if (this.filled < left.length * 2) {
 
-            this.readPos = this.writePos;
+			this.readPos = this.writePos;
 
-            this.filled = 0;
-            this.prerolling = true;
+			this.filled = 0;
+			this.prerolling = true;
 
-            left.fill(0);
-            right.fill(0);
+			left.fill(0);
+			right.fill(0);
 
-            return true;
+			return true;
 
-        }
+		}
 
-        const ring = this.ring;
-        const total = ring.length;
+		const ring = this.ring;
+		const total = ring.length;
 
-        for (let i = 0; i < left.length; i++) {
+		for (let i = 0; i < left.length; i++) {
 
-            left[i] = ring[this.readPos];
-            this.readPos = (this.readPos + 1) % total;
+			left[i] = ring[this.readPos];
+			this.readPos = (this.readPos + 1) % total;
 
-            right[i] = ring[this.readPos];
-            this.readPos = (this.readPos + 1) % total;
+			right[i] = ring[this.readPos];
+			this.readPos = (this.readPos + 1) % total;
 
-            this.filled -= 2;
+			this.filled -= 2;
 
-        }
+		}
 
-        return true;
+		return true;
 
-    }
+	}
 
 }
 
