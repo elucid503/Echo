@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/disgoorg/disgo/bot"
+	"github.com/disgoorg/disgo/discord"
+	"github.com/disgoorg/snowflake/v2"
 )
 
 var DiscordInstance *Discord
@@ -17,7 +19,7 @@ type Discord struct {
 
 func NewDiscord(client bot.Client) *Discord {
 
-	DiscordInstance := &Discord{
+	DiscordInstance = &Discord{
 
 		discordClient: &client,
 
@@ -42,6 +44,28 @@ func (d *Discord) Connect() error {
 	defer cancel()
 
 	return nil
+
+}
+
+func (d *Discord) GetVoiceState(guildID snowflake.ID, userID snowflake.ID) (*discord.VoiceState, bool) {
+
+	voiceState, ok := d.discordClient.Caches.VoiceState(guildID, userID)
+
+	if !ok || voiceState.ChannelID == nil {
+
+		restVoiceState, err := d.discordClient.Rest.GetUserVoiceState(guildID, userID)
+
+		if err != nil || restVoiceState == nil || restVoiceState.ChannelID == nil {
+
+			return nil, false
+
+		}
+
+		return restVoiceState, true
+
+	}
+
+	return &voiceState, true
 
 }
 

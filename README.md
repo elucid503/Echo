@@ -58,25 +58,32 @@ Occasional **dropped WebSocket frames** for a slow client (see non-functional re
 
 ## Libraries and External Dependencies
 
-### Go modules to add
+### Go modules
 
 | Module | Purpose | CGo? |
 |---|---|---|
-| `github.com/hraban/opus` | libopus bindings -- Opus to PCM decode per SSRC | Yes (CGo) |
+| `github.com/hraban/opus` | libopus bindings — Opus to PCM decode per SSRC | Yes (libopus, libopusfile) |
+| `github.com/disgoorg/godave/golibdave` | libdave-backed DAVE E2EE session for the voice gateway | Yes (libdave) |
 | `github.com/go-audio/wav` | WAV file encoder for clip downloads | No |
+| `github.com/gin-gonic/gin` | HTTP router and middleware for the dashboard server | No |
+| `github.com/gorilla/websocket` | WebSocket upgrade + binary frame fan-out | No |
+| `github.com/disgoorg/disgo` | Discord Gateway + voice UDP connection | No |
+| `github.com/joho/godotenv` | `.env` loading | No |
 
-**System library required:** `libopus-dev` (Debian/Ubuntu) or `opus-devel` (Fedora/RHEL). Install before `go build`. The `hraban/opus` package wraps `libopus.so` via CGo.
+### Frontend stack
 
-### Already present (keep as-is)
+The dashboard is a small React single-page app built with:
 
-| Module | Used for |
+| Tool | Role |
 |---|---|
-| `github.com/disgoorg/disgo` | Discord Gateway + voice UDP connection |
-| `github.com/disgoorg/godave` | Transitive disgo dep — investigate if it surfaces audio utilities that overlap with `hraban/opus` before adding opus separately |
-| `github.com/gorilla/websocket` | WebSocket server upgrade + send/receive |
-| `github.com/joho/godotenv` | `.env` loading |
+| [Bun](https://bun.sh) | Package manager and JS runtime used by Vite |
+| [Vite](https://vitejs.dev) | Dev server and production bundler (outputs static `dist/`) |
+| [React 19](https://react.dev) (class components only) | UI framework |
+| [Tailwind CSS 4](https://tailwindcss.com) | Utility-first styling |
 
-### Browser APIs (no npm, no bundler)
+The production build (`bun run build`) emits a static `dist/` folder which is embedded into the Go binary via `//go:embed` and served from the Gin router. There is no separate Node server in production.
+
+### Browser APIs (runtime)
 
 | API | Used for |
 |---|---|
@@ -84,8 +91,6 @@ Occasional **dropped WebSocket frames** for a slow client (see non-functional re
 | `AudioContext` + `AudioWorklet` | Schedule and play incoming PCM in real-time |
 | `AnalyserNode` | VU meter rendering |
 | File System Access API (`showSaveFilePicker`, `FileSystemFileHandle.createWritable`, `FileSystemWritableFileStream.write`) | Optional: append each mixed PCM frame to a file on the user’s machine (full-session recording); Chromium required |
-
-The entire frontend is vanilla HTML + JS served from an embedded `embed.FS`. No Node.js, no build step.
 
 ---
 
@@ -226,17 +231,20 @@ type Mixer struct {
 
 #### `web/server.go` *(new)*
 
-Responsibility: set up `net/http` routes and serve embedded static files.
+Responsibility: configure Gin, expose the audio/control endpoints, and serve the embedded React `dist/` bundle.
 
-Routes:
-- `GET /` — serves `static/index.html` from the embedded FS.
-- `GET /ws` — upgrades to WebSocket, registers client with Hub.
-- `GET /clip` — reads `?seconds=N` (default 15, max 15), calls `buffer.GetLastN(N)`, encodes as WAV using `go-audio/wav`, and returns `Content-Type: audio/wav` with a `Content-Disposition: attachment; filename="clip.wav"` header.
-- `GET /status` — returns JSON: `{ "connected": bool, "guild": "...", "channel": "...", "listeners": N }`.
+Routes (Gin):
+- `GET /` (+ SPA fallback) — serves `frontend/dist/index.html` from the embedded FS.
+- `GET /assets/*` — serves Vite's hashed asset bundle from the embedded FS.
+- `GET /ws` — upgrades to WebSocket via `gorilla/websocket` and registers the client with the Hub.
+- `GET /clip?seconds=N` (1 ≤ N ≤ 15) — calls `buffer.GetLastN(N)`, encodes as WAV using `go-audio/wav`, returns `Content-Type: audio/wav` with `Content-Disposition: attachment; filename="clip.wav"`.
+- `GET /status` — returns JSON: `{ connected, guild, channel, listeners, bytesBuffered }`.
+- `POST /join` (JSON body `{ guildID, channelID }`) — joins a voice channel on demand.
+- `POST /leave` (JSON body `{ guildID }`) — leaves the current voice channel.
 
 The server is started from `main.go` alongside the Discord gateway. Port is read from `WEB_PORT` env var (default `8080`).
 
-WAV encoding (clip endpoint): `go-audio/wav` wraps a `bytes.Buffer`; write the PCM samples as `audio.IntBuffer` with format `{SampleRate: 48000, NumChannels: 2, BitDepth: 16}`, then serve the buffer bytes. This requires no FFmpeg and no system library.
+WAV encoding (clip endpoint): `go-audio/wav` writes into a small in-memory `io.WriteSeeker` wrapper backed by `bytes.Buffer`; PCM samples are emitted as `audio.IntBuffer` with format `{SampleRate: 48000, NumChannels: 2, BitDepth: 16}`. This requires no FFmpeg and no system library beyond `libopus` (used elsewhere).
 
 #### `web/hub.go` *(new)*
 
@@ -260,30 +268,52 @@ The Hub's `Run()` goroutine selects on register/unregister/broadcast. On broadca
 
 Each `Client` has its own write goroutine that drains `client.send` and calls `websocket.WriteMessage(websocket.BinaryMessage, frame)`.
 
-#### `web/static/` *(new, embedded)*
+#### `web/frontend/` *(new, embedded)*
 
-Three files, embedded via `//go:embed static` in `server.go`.
+A React 19 + TypeScript app, scaffolded with Bun + Vite, styled with Tailwind 4. Class components only (per project convention). Production output (`dist/`) is embedded into the Go binary via `//go:embed`.
 
-**`index.html`**: Single-page dashboard.
-- Status bar (connected/disconnected, guild name, channel name, listener count).
-- Play/Pause button (toggles AudioContext playback without closing the WebSocket).
+```
+web/
+  frontend/
+    package.json
+    vite.config.ts
+    tsconfig.json
+    index.html
+    src/
+      main.tsx              entry; mounts <Dashboard/>
+      Dashboard.tsx         top-level class component (status, controls, layout)
+      audio/
+        AudioPipeline.ts    AudioContext + AudioWorkletNode + AnalyserNode wiring
+        worklet.ts          AudioWorkletProcessor (ring buffer + drain logic)
+      net/
+        EchoSocket.ts       WebSocket lifecycle + binary frame fan-out
+      record/
+        Recorder.ts         File System Access API writer (chunked, fire-and-forget)
+      components/
+        StatusBar.tsx       connection / guild / listener counts
+        VUMeter.tsx         canvas meter driven by AnalyserNode
+        Controls.tsx        play/pause, clip, record, slider
+    public/                 (worklet.js copy if Vite worker plugin is not used)
+```
+
+**Dashboard responsibilities**
+- Status bar (connected/disconnected, guild name, channel name, listener count from `/status`).
+- Play/Pause button (toggles `AudioContext.resume()` / `suspend()` without closing the WebSocket).
 - VU meter canvas (driven by `AnalyserNode`).
-- Clip button (calls `GET /clip?seconds=15`, triggers browser file download).
-- Clip duration slider (1–15 s).
-- **Record** / **Stop recording** controls (optional): gated on `showSaveFilePicker` / `createWritable` availability; show unsupported-browser copy when missing.
+- Clip button + duration slider (1–15 s): calls `GET /clip?seconds=N`, triggers a browser file download.
+- **Record** / **Stop recording**: gated on `showSaveFilePicker` / `createWritable` availability; show unsupported-browser copy when missing.
 
-**`app.js`**: WebSocket + AudioContext coordination.
-- Opens `ws://host/ws` on page load.
-- Creates `AudioContext` at 48 kHz (matching the server's stream).
-- Registers `worklet.js` as an `AudioWorklet` module.
-- Creates `AudioWorkletNode` -> `AnalyserNode` -> `destination`.
-- On each binary WebSocket message: convert `ArrayBuffer` to `Int16Array`, post to worklet via `port.postMessage({pcm: int16Array}, [int16Array.buffer])` (zero-copy transfer). **If recording is active**, copy the PCM bytes for disk **before** transferring the buffer to the worklet (transfer detaches the underlying `ArrayBuffer` on the main thread), e.g. `new Uint8Array(arrayBuffer).slice()` for that frame only, or temporarily skip `[transfer]` while recording.
-- When recording is enabled: append the per-frame copy (raw little-endian stereo s16le) to the `FileSystemWritableFileStream` in parallel with the worklet post. Avoid awaiting every `write` on the hot path if the browser allows; use a small in-memory queue and a writer loop, or fire-and-forget with explicit error handling, so disk I/O does not delay audio scheduling.
+**Audio pipeline**
+- `AudioContext` at 48 kHz on first user gesture.
+- Registers an `AudioWorkletModule` (`worklet.ts`, bundled via Vite).
+- Graph: `AudioWorkletNode` → `AnalyserNode` → `destination`.
+- On each binary WebSocket message: convert `ArrayBuffer` to `Int16Array`, post to worklet via `port.postMessage({pcm: int16Array}, [int16Array.buffer])` (zero-copy transfer). **If recording is active**, take a `slice()` of the frame bytes for the recorder **before** transferring the buffer to the worklet — transfer detaches the underlying `ArrayBuffer` on the main thread.
+- The recorder appends raw little-endian stereo s16le frames to the `FileSystemWritableFileStream` via a small async queue, so disk I/O does not block audio scheduling.
 
-**`worklet.js`**: `AudioWorkletProcessor` subclass.
+**Worklet processor**
 - Maintains a Float32 sample queue (ring buffer, pre-allocated for ~500 ms capacity).
 - On `port.onmessage`: converts incoming `Int16Array` to Float32 (divide by 32768), enqueues samples.
-- In `process(inputs, outputs)`: dequeues into the stereo output buffer. If the queue underruns (network hiccup), outputs silence — do not throw or stall.
+- In `process(inputs, outputs)`: dequeues into the stereo output buffer. If the queue underruns (network hiccup), outputs silence — never throws or stalls.
 - The queue target depth is ~200 ms (9,600 samples at 48 kHz). If the queue grows beyond 400 ms the processor trims the oldest samples to prevent drifting latency.
 
 ---
@@ -344,18 +374,45 @@ In disgo v0.19, the `voice.Conn` receives audio through a packet handler that mu
 
 ### Build prerequisites
 
+System packages (Ubuntu/Debian):
+
 ```sh
-# Debian/Ubuntu
-sudo apt-get install libopus-dev
-
-# macOS
-brew install opus
-
-# Then standard Go build (CGo enabled by default)
-go build ./...
+sudo apt install -y \
+    libopus-dev libopusfile-dev libogg-dev \
+    pkg-config build-essential cmake git curl unzip
+# Bun (skip if already installed)
+curl -fsSL https://bun.sh/install | bash
 ```
 
-CGo is required only for `hraban/opus`. All other code is pure Go.
+`hraban/opus` is a CGo wrapper around libopus/libopusfile; both `-dev` packages are required at build time (only `libopus0` / `libopusfile0` at runtime). `libogg-dev` is a transitive header dependency of libopusfile. `pkg-config` and `build-essential` provide the compiler toolchain CGo invokes.
+
+#### libdave (Discord DAVE E2EE)
+
+As of 2026-03-01 Discord enforces the DAVE end-to-end encryption protocol on every voice connection. Echo uses [`github.com/disgoorg/godave/golibdave`](https://pkg.go.dev/github.com/disgoorg/godave/golibdave), a CGo wrapper around Discord's `libdave`. The shared library must be installed locally before `./build.sh` can link.
+
+The godave repo ships an installer script; the simplest path is to clone the repo, run it, and let it drop `libdave.so`, the `dave.h` header, and a pkg-config descriptor into `$HOME/.local`:
+
+```sh
+git clone https://github.com/disgoorg/godave
+cd godave
+chmod +x scripts/libdave_install.sh
+./scripts/libdave_install.sh v1.1.0
+```
+
+`build.sh` already exports `CGO_CFLAGS`, `CGO_LDFLAGS`, and `PKG_CONFIG_PATH` pointing at `$HOME/.local`, and the linker adds an `rpath` to that same directory so the produced binary keeps working without any global LD_LIBRARY_PATH gymnastics.
+
+#### Building Echo
+
+```sh
+./build.sh
+```
+
+That script:
+
+1. Runs `bun install` (if `node_modules` is missing) and `bun run build` inside `web/frontend/`, producing `web/frontend/dist/`.
+2. Builds the Go binary, embedding the `dist/` folder via `//go:embed` and linking against the system libopus plus the user-local libdave.
+
+For local frontend iteration you can run `bun run dev` inside `web/frontend/` (Vite dev server on `:5173`); the dev server proxies `/ws`, `/clip`, `/status`, `/join`, and `/leave` to the Go backend running on `:8080`.
 
 ### Directory structure (target state)
 
@@ -370,13 +427,23 @@ Echo/
   voice/
     conn.go
     buffer.go
-    receiver.go    (new)
-    mixer.go       (new)
+    receiver.go        (new)
+    mixer.go           (new)
   web/
-    server.go      (new)
-    hub.go         (new)
-    static/
-      index.html   (new)
-      app.js       (new)
-      worklet.js   (new)
+    server.go          (new)
+    hub.go             (new)
+    embed.go           (new — //go:embed of frontend/dist)
+    frontend/          (new — Bun + Vite + React + Tailwind)
+      package.json
+      vite.config.ts
+      tsconfig.json
+      index.html
+      src/
+        main.tsx
+        Dashboard.tsx
+        audio/
+        net/
+        record/
+        components/
+      dist/            (build output, embedded)
 ```

@@ -1,15 +1,34 @@
 package voice
 
+import (
+	"sync"
+)
+
+// Constants describing the PCM stream produced by the mixer.
+const (
+
+	SampleRate = 48000
+	Channels = 2
+	BytesPerSample = 2 // int16 little-endian
+
+	BufferSeconds = 15
+
+	BytesPerSecond = SampleRate * Channels * BytesPerSample
+	BufferBytes = BytesPerSecond * BufferSeconds
+
+)
+
 type bufferState struct {
 
 	writePos int
-	full bool
+	full     bool
 
 }
 
+// Buffer is a thread-safe circular byte buffer that holds the most recent BufferSeconds worth of mixed PCM.
 type Buffer struct {
 
-	// circular buffer storing 15s of PCM audio (48kHz, 16-bit, stereo)
+	mu sync.RWMutex
 
 	data []byte
 
@@ -21,7 +40,7 @@ func NewBuffer() *Buffer {
 
 	return &Buffer{
 
-		data: make([]byte, (48000) * (2 * 2) * (15)), // 48kHz * 16-bit * stereo * 15s
+		data: make([]byte, BufferBytes),
 
 		state: bufferState{},
 
@@ -29,23 +48,27 @@ func NewBuffer() *Buffer {
 
 }
 
+// WriteAudio appends pcmData to the circular buffer, overwriting the oldest audio when the buffer fills.
 func (b *Buffer) WriteAudio(pcmData []byte) {
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	capacity := len(b.data)
 
 	for len(pcmData) > 0 {
 
-		chunk := capacity - b.state.writePos // calculates how much space is left from the current write position to the end of the buffer
+		chunk := capacity - b.state.writePos
 
 		if chunk > len(pcmData) {
 
-			chunk = len(pcmData) // if the chunk size is larger than the remaining PCM data, adjust it to fit the remaining data
+			chunk = len(pcmData)
 
 		}
 
-		copy(b.data[b.state.writePos:], pcmData[:chunk]) // copy the chunk of PCM data into the buffer at the current write position
+		copy(b.data[b.state.writePos:], pcmData[:chunk])
 
-		b.state.writePos = (b.state.writePos + chunk) % capacity // updates the write position, wrapping around to the beginning of the buffer if necessary
+		b.state.writePos = (b.state.writePos + chunk) % capacity
 
 		if b.state.writePos == 0 {
 
@@ -59,35 +82,114 @@ func (b *Buffer) WriteAudio(pcmData []byte) {
 
 }
 
+// GetAudio returns a copy of the full buffer contents in chronological order (oldest sample first).
 func (b *Buffer) GetAudio() []byte {
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
 	if !b.state.full {
 
-		// If the buffer is not full, we can simply return the portion of the buffer that has been written to
-
 		audioCopy := make([]byte, b.state.writePos)
-
 		copy(audioCopy, b.data[:b.state.writePos])
 
 		return audioCopy
 
 	}
 
-	// Here, we need to return the audio data starting from the current write position to the end of the buffer, and then from the beginning of the buffer to the current write position
-
 	audioCopy := make([]byte, len(b.data))
 
 	n := copy(audioCopy, b.data[b.state.writePos:])
-
 	copy(audioCopy[n:], b.data[:b.state.writePos])
 
 	return audioCopy
 
 }
 
+// GetLastN returns the most recent seconds of audio (clamped to whatever the buffer actually contains)
+func (b *Buffer) GetLastN(seconds float64) []byte {
+
+	if seconds <= 0 {
+
+		return nil
+
+	}
+
+	if seconds > BufferSeconds {
+
+		seconds = BufferSeconds
+
+	}
+
+	wanted := int(float64(BytesPerSecond) * seconds)
+
+	// aligns to a frame boundary (int16 stereo = 4 bytes) so callers always receive a whole number of samples.
+
+	wanted -= wanted % (Channels * BytesPerSample)
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	available := b.state.writePos
+
+	if b.state.full {
+
+		available = len(b.data)
+
+	}
+
+	if wanted > available {
+
+		wanted = available
+
+	}
+
+	out := make([]byte, wanted)
+
+	if wanted == 0 {
+
+		return out
+
+	}
+
+	// walks back wanted bytes from the current write position, wrapping around if necessary.
+
+	start := b.state.writePos - wanted
+
+	capacity := len(b.data)
+
+	if start < 0 {
+
+		start += capacity
+
+	}
+
+	if start+wanted <= capacity {
+
+		copy(out, b.data[start:start+wanted])
+
+		return out
+
+	}
+
+	n := copy(out, b.data[start:])
+	copy(out[n:], b.data[:wanted-n])
+
+	return out
+
+}
+
+// Clear resets the buffer to a silent state. Uses a mutex, so safe to call concurrently.
 func (b *Buffer) Clear() {
 
-	b.data = make([]byte, len(b.data))
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	for i := range b.data {
+
+		b.data[i] = 0
+
+	}
 
 	b.state = bufferState{}
 

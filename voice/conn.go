@@ -3,39 +3,65 @@ package voice
 import (
 	"context"
 	"sprout/echo/utils"
+	"sync"
 	"time"
 
-	"github.com/disgoorg/disgo/voice"
+	dvoice "github.com/disgoorg/disgo/voice"
 	"github.com/disgoorg/snowflake/v2"
 )
 
-var activeConnections = make(map[snowflake.ID]*Connection) // map of guildIDs to connections
+var (
 
+	activeConnections = make(map[snowflake.ID]*Connection)
+
+	activeConnectionsMu sync.RWMutex
+
+)
+
+// Connection owns one Discord voice session and all of the audio-pipeline pieces scoped to it.
 type Connection struct {
 
-	guildID snowflake.ID
+	guildID   snowflake.ID
 	channelID snowflake.ID
 
-	voiceConnection *voice.Conn
+	voiceConnection dvoice.Conn
+
+	Receiver *Receiver
+	Mixer *Mixer
+	Buffer *Buffer
 
 }
 
-func NewConnection(guildID snowflake.ID, channelID snowflake.ID) *Connection {
+// NewConnection allocates the pipeline pieces for a new guild and registers it in activeConnections. The pipeline does not start until Connect runs.
+func NewConnection(guildID snowflake.ID, channelID snowflake.ID, broadcaster Broadcaster) *Connection {
+
+	buffer := NewBuffer()
+	receiver := NewReceiver()
 
 	connection := &Connection{
 
 		guildID: guildID,
 		channelID: channelID,
 
+		Receiver: receiver,
+		Buffer: buffer,
+		Mixer: NewMixer(receiver, buffer, broadcaster),
+
 	}
 
+	activeConnectionsMu.Lock()
 	activeConnections[guildID] = connection
+	activeConnectionsMu.Unlock()
 
 	return connection
 
 }
 
+// GetConnection returns the active pipeline for a guild, if any.
 func GetConnection(guildID snowflake.ID) (*Connection, bool) {
+
+	activeConnectionsMu.RLock()
+	defer activeConnectionsMu.RUnlock()
 
 	connection, exists := activeConnections[guildID]
 
@@ -43,21 +69,31 @@ func GetConnection(guildID snowflake.ID) (*Connection, bool) {
 
 }
 
+// RemoveConnection drops the pipeline from the registry. Disconnect must be called separately!
 func RemoveConnection(guildID snowflake.ID) {
+
+	activeConnectionsMu.Lock()
+	defer activeConnectionsMu.Unlock()
 
 	delete(activeConnections, guildID)
 
 }
 
-func (c *Connection) Connect() (*voice.Conn, error) {
+// Getters
+
+func (c *Connection) GuildID() snowflake.ID { return c.guildID }
+func (c *Connection) ChannelID() snowflake.ID { return c.channelID }
+
+// Connect opens the underlying Discord voice connection, wires the Receiver into disgo's audio receive path, then starts the Mixer goroutines.
+func (c *Connection) Connect() (dvoice.Conn, error) {
 
 	voiceConn := utils.DiscordInstance.GetClient().VoiceManager.CreateConn(c.guildID)
 
-	openContext, cancel := context.WithDeadline(context.Background(), time.Now().Add(10 * time.Second))
+	openContext, cancel := context.WithDeadline(context.Background(), time.Now().Add(10*time.Second))
 
 	defer cancel()
 
-	err := voiceConn.Open(openContext, c.channelID, true, false)
+	err := voiceConn.Open(openContext, c.channelID, true, false) // selfMute = true, selfDeaf = false
 
 	if err != nil {
 
@@ -65,25 +101,42 @@ func (c *Connection) Connect() (*voice.Conn, error) {
 
 	}
 
-	c.voiceConnection = &voiceConn
+	c.voiceConnection = voiceConn
+
+	voiceConn.SetOpusFrameReceiver(c.Receiver)
+
+	c.Mixer.Start()
 
 	return c.voiceConnection, nil
 
 }
 
+// Disconnect tears down the pipeline in the opposite order it was built.
 func (c *Connection) Disconnect() error {
 
-	if c.voiceConnection == nil {
+	if c.Mixer != nil {
 
-		return nil
+		c.Mixer.Stop()
 
 	}
 
-	closeContext, cancel := context.WithDeadline(context.Background(), time.Now().Add(10 * time.Second))
+	if c.voiceConnection != nil {
 
-	defer cancel()
+		closeContext, cancel := context.WithDeadline(context.Background(), time.Now().Add(10*time.Second))
 
-	(*c.voiceConnection).Close(closeContext)
+		defer cancel()
+
+		c.voiceConnection.Close(closeContext)
+
+	}
+
+	if c.Receiver != nil {
+
+		c.Receiver.Close()
+
+	}
+
+	RemoveConnection(c.guildID)
 
 	return nil
 
