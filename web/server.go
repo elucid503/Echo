@@ -22,9 +22,7 @@ import (
 
 )
 
-// Server bundles the HTTP router, the per-guild WebSocket hubs, and lifecycle
-// hooks for the voice pipeline.
-
+// Server bundles the HTTP router, the per-guild WebSocket hubs, and lifecycle hooks for the voice pipeline.
 type Server struct {
 
 	router *gin.Engine
@@ -276,6 +274,7 @@ type statusResponse struct {
 
 }
 
+// Controller for the /status endpoint.
 func (s *Server) handleStatus(c *gin.Context) {
 
 	resp := statusResponse{
@@ -321,6 +320,7 @@ func (s *Server) handleStatus(c *gin.Context) {
 
 }
 
+// Controller for the /clip endpoint.
 func (s *Server) handleClip(c *gin.Context) {
 
 	seconds := 15.0
@@ -414,6 +414,7 @@ type joinRequest struct {
 
 }
 
+// Controller for the /join endpoint.
 func (s *Server) handleJoin(c *gin.Context) {
 
 	if s.Join == nil {
@@ -472,6 +473,7 @@ type leaveRequest struct {
 
 }
 
+// Controller for the /leave endpoint.
 func (s *Server) handleLeave(c *gin.Context) {
 
 	if s.Leave == nil {
