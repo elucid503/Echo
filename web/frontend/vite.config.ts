@@ -2,10 +2,6 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 
-// Vite config — produces a static build in dist/ that the Go server embeds
-// via //go:embed. During development the dev server proxies API + WS routes
-// to the Go backend running on :8080.
-
 export default defineConfig({
     plugins: [react(), tailwindcss()],
     build: {

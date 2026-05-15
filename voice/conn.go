@@ -13,7 +13,6 @@ import (
 var (
 
 	activeConnections = make(map[snowflake.ID]*Connection)
-
 	activeConnectionsMu sync.RWMutex
 
 )

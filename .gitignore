@@ -1,16 +1,20 @@
-# Compiled Go binary
+# Compiled binary
+
 /echo
 
 # Local environment
+
 .env
 
-# Editor / OS noise
+# Editor / OS stuff
+
 .vscode/
 .idea/
 *.swp
 .DS_Store
 
-# Frontend build outputs and tooling
+# Frontend
+
 /web/frontend/node_modules
 /web/frontend/bun.lock/
 /web/frontend/dist/
